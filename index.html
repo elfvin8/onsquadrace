@@ -282,11 +282,6 @@
   .btn-reset-display:hover { border-color: var(--text); color: var(--text); }
 
   /* ===== SCREEN 2: DISPLAY ===== */
-  #screen-display {
-    display: none;
-    flex-direction: column;
-  }
-  #screen-display.active { display: flex; }
 
   .display-header {
     padding: 24px 32px;
@@ -618,7 +613,10 @@
     min-height: calc(100vh - 49px);
     overflow: hidden;
     background: #050e12;
+    display: none;
+    flex-direction: column;
   }
+  #screen-display.active { display: flex; }
 
   .dp-bg {
     position: absolute;
@@ -1153,7 +1151,10 @@
   </div>
 
   <div class="run-log">
-    <div class="run-log-header">🏁 Completed Runs</div>
+    <div class="run-log-header" style="display:flex; align-items:center;">
+      🏁 Completed Runs
+      <button onclick="exportCSV()" style="margin-left:auto; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:5px 12px; font-family:var(--font-display); font-size:12px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--accent); cursor:pointer;">⬇ Export CSV</button>
+    </div>
     <div class="run-log-list" id="control-log">
       <div class="run-log-empty">No completed runs yet.</div>
     </div>
@@ -1404,8 +1405,14 @@ function startRun() {
   if (!name) { showNotif('Enter a participant name first!'); return; }
   if (!runRef) { showNotif('Firebase not connected'); return; }
 
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-stop').classList.add('visible');
+  showNotif(`▶ Starting: ${name} @ ${currentPace} km/h`);
+
+  // Write to Firebase immediately so Display starts its 3-2-1 countdown
+  // startTimestamp is set 4 seconds in the future so clock starts at GO!
   isRunning = true;
-  startTimestamp = Date.now();
+  startTimestamp = Date.now() + 4000;
   currentRunKey = 'run_' + Date.now();
   paceSegments = [{ pace: currentPace, from: startTimestamp }];
 
@@ -1418,22 +1425,23 @@ function startRun() {
     paceSegments: JSON.stringify(paceSegments)
   });
 
-  document.getElementById('btn-start').disabled = true;
-  document.getElementById('btn-stop').classList.add('visible');
-  showNotif(`▶ Started: ${name} @ ${currentPace} km/h`);
-  document.getElementById('debug-panel').style.display = 'block';
-  updateControlInterval();
-  // Live debug updater
-  if (window.debugInterval) clearInterval(window.debugInterval);
-  window.debugInterval = setInterval(() => {
-    if (!isRunning) { clearInterval(window.debugInterval); return; }
-    const now = Date.now();
-    const elapsed = Math.floor((now - startTimestamp) / 1000);
-    const dist = Math.round(calcDistanceCovered(paceSegments, now));
-    document.getElementById('dbg-segs').textContent = paceSegments.length;
-    document.getElementById('dbg-dist').textContent = dist + 'm';
-    document.getElementById('dbg-elapsed').textContent = elapsed + 's';
-  }, 1000);
+  // Debug panel + control interval start at GO!
+  setTimeout(() => {
+    updateControlInterval();
+    showNotif(`▶ Started: ${name} @ ${currentPace} km/h`);
+    // Debug panel
+    document.getElementById('debug-panel').style.display = 'block';
+    if (window.debugInterval) clearInterval(window.debugInterval);
+    window.debugInterval = setInterval(() => {
+      if (!isRunning) { clearInterval(window.debugInterval); return; }
+      const now = Date.now();
+      const elapsed = Math.max(0, Math.floor((now - startTimestamp) / 1000));
+      const dist = Math.round(calcDistanceCovered(paceSegments, now));
+      document.getElementById('dbg-segs').textContent = paceSegments.length;
+      document.getElementById('dbg-dist').textContent = dist + 'm';
+      document.getElementById('dbg-elapsed').textContent = elapsed + 's';
+    }, 1000);
+  }, 4000);
 }
 
 function stopRun() {
@@ -1734,6 +1742,32 @@ function resetDisplay() {
   if (!runRef) return;
   runRef.set({ status: 'reset', name: '', pace: 0, startTimestamp: 0, runKey: 'reset_' + Date.now() });
   showNotif('↺ Display screen reset');
+}
+
+function exportCSV() {
+  leaderboardRef.once('value', snap => {
+    const entries = [];
+    snap.forEach(child => {
+      const v = child.val();
+      if (v && typeof v === 'object') entries.push(v);
+    });
+    if (!entries.length) { showNotif('No data to export!'); return; }
+    entries.sort((a, b) => (a.time || 0) - (b.time || 0));
+    const rows = [['Rank', 'Name', 'Time', 'Avg Pace (km/h)', 'Finished At']];
+    entries.forEach((e, i) => {
+      const ts = e.finishedAt ? new Date(e.finishedAt).toLocaleString() : '';
+      rows.push([i + 1, e.name || '', e.timeFormatted || '', e.pace || '', ts]);
+    });
+    const csv = rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'onsquadrace_results_' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    showNotif('✓ CSV exported!');
+  });
 }
 
 initFirebase();
