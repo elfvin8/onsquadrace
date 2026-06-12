@@ -1709,9 +1709,11 @@ function showCompleted() {
   if (!el || el.classList.contains('show')) return;
 
   // Build letter spans with staggered animation delays
-  const text = 'Run Completed!';
-  el.innerHTML = text.split('').map((ch, i) => {
-    const delay = (i * 0.045) + 0.3;
+  const text = 'Run\nCompleted!';
+  let letterIndex = 0;
+  el.innerHTML = text.split('').map((ch) => {
+    if (ch === '\n') return '<br>';
+    const delay = (letterIndex++ * 0.045) + 0.3;
     return ch === ' '
       ? '<span class="letter" style="animation-delay:' + delay + 's">&nbsp;</span>'
       : '<span class="letter" style="animation-delay:' + delay + 's">' + ch + '</span>';
